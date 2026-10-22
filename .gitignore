@@ -2,3 +2,7 @@
 server
 frontend/public/assets
 .directory
+audios
+files
+*.jpg
+*.png

@@ -125,12 +125,10 @@ struct JSONValue
 
                            std::cout << std::string(indent, ' ')
                                      << ']';
-                       }
-                   },
+                       } },
                    value);
     }
 };
-
 
 int main()
 {

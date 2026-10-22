@@ -1,36 +1,17 @@
-import { getUsers } from "../api.js";
 import { createNavBar } from "../components/navbar.js";
-import { createLoginPage } from "../components/login.js";
-import { createCanvas } from "../components/myCanvas.js";
-
-let isLogged = false;
+import { createMusicPlayer } from "../components/music_player/music_player.js";
 
 const root = document.getElementById("root");
 
-createNavBar(root);
+// root.appendChild(createNavBar());
 
-function showHome() {
-    const homeText = document.createElement("h1");
-    homeText.textContent = "Welcome Home";
-    root.appendChild(homeText);
-}
+const player = createMusicPlayer({
+  onPlay: () => console.log("Playing"),
+  onPause: () => console.log("Paused"),
+  onNext: () => console.log("Skipped to next song"),
+  onPrevious: () => console.log("Skipped to previous song")
+});
 
-if (isLogged) {
-    createCanvas();
-    showHome();
-} else {
-    const loginPage = createLoginPage((response) => {
-        isLogged = true;
-        loginPage.remove();
-        showHome();
-    });
-    root.appendChild(loginPage);
-}
+const audio = player.audio;
 
-const canvas = createCanvas();
-
-root.appendChild(canvas);
-
-const users = await getUsers();
-
-console.log(users);
+root.appendChild(player);

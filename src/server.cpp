@@ -38,6 +38,10 @@ int Server::start()
         close(socket_fd);
         return 1;
     }
+
+    fs.extractMetadataFiles();
+    fs.listFiles();
+
     return 0;
 }
 int Server::run()

@@ -1,4 +1,4 @@
-export function createNavBar(root) {
+export function createNavBar() {
     const links = ["Home", "Gallery", "About"];
 
     const nav = document.createElement("nav");
@@ -14,5 +14,6 @@ export function createNavBar(root) {
         nav.appendChild(a);
     });
 
-    root.appendChild(nav);
+    // root.appendChild(nav);
+    return nav;
 }

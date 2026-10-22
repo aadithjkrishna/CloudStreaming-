@@ -7,13 +7,22 @@
 #include <sstream>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <cctype>
+#include <algorithm>
+#include <limits>
+#include <optional>
+#include <utility>
+#include <cstdint>
 
 #include <iostream>
 
 #define BUFFER_SIZE 4096
 
+#define DEBUG_HTTP
+
 enum HTTPMethod
 {
+    INVALID,
     GET,
     POST,
     PUT,
@@ -23,7 +32,6 @@ enum HTTPMethod
     OPTIONS,
     CONNECT,
     TRACE,
-    UNKNOWN
 };
 
 class HTTP
@@ -31,7 +39,7 @@ class HTTP
 public:
     struct HTTPRequest
     {
-        HTTPMethod method = UNKNOWN;
+        HTTPMethod method = HTTPMethod::INVALID;
         std::string path;
         std::string body;
         std::string version;
@@ -39,20 +47,29 @@ public:
         std::unordered_map<std::string, std::string> headers;
         bool valid = false;
     };
-    struct HTTPResponse {
+    struct HTTPResponse
+    {
         std::string statusCode;
         std::string contentType;
         std::string body;
+
+        bool partialContent = false;
+        uint64_t rangeStart = 0;
+        uint64_t rangeEnd = 0;
+        uint64_t totalSize = 0;
     };
     static HTTPRequest receiveData(int socket_fd);
     static void sendData(HTTPResponse, int socket_fd);
     static std::string handleRequest(const HTTPRequest &req);
     static bool readFile(const std::string &filepath, std::string &outContent);
+    static bool readFile(const std::string &filepath, std::string &outContent, uint64_t start, uint64_t end);
     static std::string getMimeType(const std::string &path);
+    static std::string convertPathToURL(const std::string &file_name);
+    static std::string convertURLToPath(const std::string &file_name);
 
 private:
     static std::string handleGETRequests(const HTTPRequest &req);
     static std::string handlePOSTRequest(const HTTPRequest &req);
-    static inline std::string buildResponse(const HTTPResponse& response);
+    static inline std::string buildResponse(const HTTPResponse &response);
     static HTTPRequest parseRequest(const std::string &raw);
 };

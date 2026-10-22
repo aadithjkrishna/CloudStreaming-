@@ -9,9 +9,11 @@
 #include <atomic>
 #include <poll.h>
 #include <cerrno>
+#include <nlohmann/json.hpp>
 
 #include "http.hpp"
 #include "router.hpp"
+#include "file_service.hpp"
 
 class Server
 {
@@ -24,6 +26,7 @@ private:
     Router router;
 
 public:
+    FileService fs;
     Server(int port = 3000);
     ~Server();
     int start();
@@ -34,7 +37,8 @@ public:
     {
         router.get(path, std::move(handler));
     }
-    void get(const std::string &path, const std::string &filePath) {
+    void get(const std::string &path, const std::string &filePath)
+    {
         router.get(path, filePath);
     }
     void post(const std::string &path, Handler handler)
@@ -44,5 +48,11 @@ public:
     void serveFolder(const std::string &path)
     {
         router.serveFolder(path);
+    }
+    void serveFolder(
+        const std::string &path,
+        const std::string &urlPrefix)
+    {
+        router.serveFolder(path, urlPrefix);
     }
 };
