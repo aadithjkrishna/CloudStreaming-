@@ -16,7 +16,6 @@ int main()
     server.serveFolder("./covers", "/covers");
 
     server.get("/", base + "/pages/index.html");
-
     server.get("/users", [](const HTTP::HTTPRequest &req)
                { return HTTP::HTTPResponse{
                      "200 OK",
@@ -30,48 +29,78 @@ int main()
             req.body + "}";
 
         std::cout << "POST body: " << req.body << '\n';
-
         return HTTP::HTTPResponse{
             "201 Created",
             "application/json",
             responsePayload
         }; });
-
-    server.get("/songs", [&](const HTTP::HTTPRequest &req)
+    server.get("/songs", [&server](const HTTP::HTTPRequest &req)
                {
-        nlohmann::json response;
-        response["songs"] = nlohmann::json::array();
+    nlohmann::json response;
+    response["songs"] = nlohmann::json::array();
 
-        for (const auto& file : server.fs.files)
+    const auto files = server.fs.getFilesSnapshot();
+
+    for (const auto& file : files)
+    {
+        nlohmann::json song;
+
+        song["id"] = file.id;
+        song["title"] = file.title;
+        song["artist"] = file.artist;
+        song["album"] = file.album;
+        song["audio_path"] = "/audios/" + file.url_path;
+
+        if (!file.cover_image_path.empty())
         {
-            nlohmann::json song;
-
-            song["title"] = file.title;
-            song["artist"] = file.artist;
-            song["album"] = file.album;
-            song["audio_path"] = "/audios/" + file.url_path;
-
-            if (!file.cover_image_path.empty())
-            {
-                song["cover_path"] =
-                    "/covers/" +
-                    std::filesystem::path(file.cover_image_path)
-                        .filename().string();
-            }
-            else
-            {
-                song["cover_path"] = nullptr;
-            }
-
-            response["songs"].push_back(song);
+            song["cover_path"] =
+                "/covers/" +
+                std::filesystem::path(file.cover_image_path)
+                    .filename().string();
+        }
+        else
+        {
+            song["cover_path"] = nullptr;
         }
 
+        response["songs"].push_back(std::move(song));
+    }
+    return HTTP::HTTPResponse{
+        "200 OK",
+        "application/json",
+        response.dump()
+    }; });
+    server.get("/search", [](const HTTP::HTTPRequest &request)
+               {
+    const auto qIt = request.query.find("q");
+    if (qIt == request.query.end() || qIt->second.empty())
+    {
         return HTTP::HTTPResponse{
-            "200 OK",
+            "400 Bad Request",
             "application/json",
-            response.dump()
-        }; });
+            R"({"error":"Missing required query parameter: q"})"
+        };
+    }
+    const std::string query = qIt->second;
+    const auto limitIt = request.query.find("limit");
+    const std::string limit =
+        limitIt != request.query.end() ? limitIt->second : "10";
+    std::cout << "Search query: " << query << '\n';
+    std::cout << "Limit: " << limit << '\n';
+    const std::string result = YT_DLP::retrieveSongs(query);
+    return HTTP::HTTPResponse{
+        "200 OK",
+        "application/json",
+        result
+    }; });
 
+    server.get("/song/{id}", [&server](const HTTP::HTTPRequest &request)
+               {
+        // std::cout << "ID: " << request.params.at("id") << "\n";
+        std::string id = request.params.at("id");
+        std::string audio_url = YT_DLP::getAudioStreamUrl(id);
+        server.download(id);
+        return HTTP::HTTPResponse{"200 OK", "application/json", "{\"audio_url\":\"" + audio_url + "\"}"}; });
     if (server.start() != 0)
         return 1;
 

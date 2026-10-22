@@ -24,8 +24,6 @@ parseRange(const std::string &range, uint64_t fileSize)
         return std::nullopt;
 
     const std::string value = range.substr(6);
-
-    // Only single byte ranges are supported.
     if (value.find(',') != std::string::npos)
         return std::nullopt;
 
@@ -108,6 +106,7 @@ struct Route
     HTTPMethod method;
     std::string path;
     Handler handler;
+    std::string path_parameter;
     Route(
         HTTPMethod httpMethod,
         const std::string &httpPath,
@@ -115,6 +114,16 @@ struct Route
         : method(httpMethod),
           path(httpPath),
           handler(std::move(httpHandler))
+    {
+    }
+    Route(
+        HTTPMethod httpMethod,
+        const std::string &httpPath,
+        Handler httpHandler, const std::string &path_parameter)
+        : method(httpMethod),
+          path(httpPath),
+          handler(std::move(httpHandler)),
+          path_parameter(path_parameter)
     {
     }
 };
@@ -136,7 +145,9 @@ private:
 public:
     void get(const std::string &path, Handler handler = defaultHandler)
     {
-        routes.push_back({HTTPMethod::GET, path, std::move(handler)});
+        routes.push_back({HTTPMethod::GET,
+                          path,
+                          std::move(handler)});
     }
     void get(const std::string &path, const std::string &filePath)
     {
@@ -279,55 +290,149 @@ public:
 
     HTTP::HTTPResponse route(const HTTP::HTTPRequest &request)
     {
+        HTTP::HTTPRequest matchedRequest = request;
+        auto splitPath = [](const std::string &path)
+        {
+            std::vector<std::string> segments;
+            std::stringstream ss(path);
+            std::string segment;
+            while (std::getline(ss, segment, '/'))
+            {
+                if (!segment.empty())
+                    segments.push_back(segment);
+            }
+            return segments;
+        };
+        auto urlDecode = [](const std::string &value)
+        {
+            std::string result;
+            result.reserve(value.size());
+            for (size_t i = 0; i < value.size(); ++i)
+            {
+                if (value[i] == '%' && i + 2 < value.size())
+                {
+                    auto hexValue = [](char c) -> int
+                    {
+                        if (c >= '0' && c <= '9')
+                            return c - '0';
+                        if (c >= 'a' && c <= 'f')
+                            return c - 'a' + 10;
+                        if (c >= 'A' && c <= 'F')
+                            return c - 'A' + 10;
+                        return -1;
+                    };
+                    int high = hexValue(value[i + 1]);
+                    int low = hexValue(value[i + 2]);
+                    if (high >= 0 && low >= 0)
+                    {
+                        result += static_cast<char>((high << 4) | low);
+                        i += 2;
+                        continue;
+                    }
+                }
+                else if (value[i] == '+')
+                {
+                    result += ' ';
+                    continue;
+                }
+                result += value[i];
+            }
+            return result;
+        };
+        const size_t queryPos = request.path.find('?');
+        const std::string pathOnly =
+            request.path.substr(0, queryPos);
+        const std::string queryString =
+            queryPos != std::string::npos
+                ? request.path.substr(queryPos + 1)
+                : "";
+        matchedRequest.query.clear();
+        std::stringstream queryStream(queryString);
+        std::string pair;
+        while (std::getline(queryStream, pair, '&'))
+        {
+            if (pair.empty())
+                continue;
+            const size_t equalPos = pair.find('=');
+            const std::string key =
+                urlDecode(pair.substr(0, equalPos));
+            const std::string value =
+                equalPos != std::string::npos
+                    ? urlDecode(pair.substr(equalPos + 1))
+                    : "";
+            if (!key.empty())
+                matchedRequest.query[key] = value;
+        }
+        const auto requestSegments = splitPath(pathOnly);
         for (const auto &route : routes)
         {
-            if (route.method == request.method &&
-                route.path == request.path)
+            if (route.method != request.method)
+                continue;
+            const auto routeSegments = splitPath(route.path);
+            if (routeSegments.size() != requestSegments.size())
+                continue;
+            bool matches = true;
+            matchedRequest.params = request.params;
+            for (size_t i = 0; i < routeSegments.size(); ++i)
             {
-                return route.handler(request);
+                const auto &pattern = routeSegments[i];
+                const auto &value = requestSegments[i];
+
+                if (pattern.size() >= 3 &&
+                    pattern.front() == '{' &&
+                    pattern.back() == '}')
+                {
+                    const std::string name =
+                        pattern.substr(1, pattern.size() - 2);
+
+                    matchedRequest.params[name] = urlDecode(value);
+                }
+                else if (pattern != value)
+                {
+                    matches = false;
+                    break;
+                }
             }
+            if (matches)
+                return route.handler(matchedRequest);
         }
         if (request.method == HTTPMethod::GET)
         {
             for (const auto &folder : staticFolders)
             {
                 const std::string &prefix = folder.urlPrefix;
-
-                // "/" matches every absolute URL path.
-                bool matches = prefix == "/"
-                                   ? (!request.path.empty() && request.path.front() == '/')
-                                   : (request.path == prefix ||
-                                      request.path.rfind(prefix + "/", 0) == 0);
-
+                bool matches =
+                    prefix == "/"
+                        ? (!pathOnly.empty() && pathOnly.front() == '/')
+                        : (pathOnly == prefix ||
+                           pathOnly.rfind(prefix + "/", 0) == 0);
                 if (!matches)
                     continue;
-
                 std::string relativePath;
-
                 if (prefix == "/")
                 {
-                    relativePath = request.path.substr(1);
+                    relativePath = pathOnly.substr(1);
                 }
                 else
                 {
-                    relativePath = request.path.substr(prefix.size());
+                    relativePath = pathOnly.substr(prefix.size());
 
-                    if (!relativePath.empty() && relativePath.front() == '/')
+                    if (!relativePath.empty() &&
+                        relativePath.front() == '/')
+                    {
                         relativePath.erase(0, 1);
+                    }
                 }
-
                 relativePath = HTTP::convertURLToPath(relativePath);
-
                 if (relativePath.empty())
                     continue;
-
                 HTTP::HTTPResponse response =
                     handleFile(relativePath, folder.filesystemPath, request);
-
                 if (response.statusCode != "404 Not Found")
                     return response;
             }
         }
+
         return {
             "404 Not Found",
             "text/plain",
@@ -338,7 +443,6 @@ public:
     {
         const std::string prefix =
             "/" + std::filesystem::path(folder).filename().string();
-
         staticFolders.push_back({folder, prefix});
     }
 

@@ -2,7 +2,7 @@
 
 std::atomic<bool> Server::shutdownInitiated{false};
 
-Server::Server(int port) : port(port)
+Server::Server(int port) : port(port), fs("./audios", "./data/music_library.json", std::chrono::minutes(2))
 {
     socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd < 0)
@@ -39,8 +39,16 @@ int Server::start()
         return 1;
     }
 
-    fs.extractMetadataFiles();
-    fs.listFiles();
+    try
+    {
+        fs.start();
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "FileService startup failed: "
+                  << e.what() << '\n';
+        return 1;
+    }
 
     return 0;
 }
@@ -97,8 +105,9 @@ int Server::run()
             worker.detach();
         }
     }
-
     std::cout << "Server shutting down...\n";
+    fs.stop();
+    return 0;
 
     return 0;
 }

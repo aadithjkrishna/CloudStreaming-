@@ -14,6 +14,7 @@
 #include "http.hpp"
 #include "router.hpp"
 #include "file_service.hpp"
+#include "yt_dlp_backend.hpp"
 
 class Server
 {
@@ -44,6 +45,9 @@ public:
     void post(const std::string &path, Handler handler)
     {
         router.post(path, std::move(handler));
+    }
+    void download(const std::string audio_id) {
+        YT_DLP::downloadAudio(audio_id, "./audios", fs);
     }
     void serveFolder(const std::string &path)
     {
