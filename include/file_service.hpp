@@ -1,8 +1,5 @@
 #pragma once
 
-// FileService indexes audio files in a managed directory, persists their
-// metadata, reconciles the index with the filesystem, and provides queries.
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -54,6 +51,7 @@ public:
     std::string artist;
     std::string album;
     std::string genre;
+    SongSource source = SongSource::Local;
 
     File() = default;
 
@@ -96,7 +94,9 @@ public:
     void setOnDeletedFile(DeletedFileCallback callback);
 
     std::optional<File> addDownloadedFile(
-        const std::filesystem::path& downloaded_path);
+        const std::filesystem::path& downloaded_path,
+        SongSource source = SongSource::Local,
+        const std::filesystem::path& cover_path = {});
 
     void scanOnce();
 

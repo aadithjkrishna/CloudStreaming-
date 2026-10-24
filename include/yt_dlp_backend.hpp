@@ -1,3 +1,5 @@
+#pragma once
+
 #include "file_service.hpp"
 
 #include <filesystem>
@@ -14,14 +16,25 @@ class YT_DLP
 {
 public:
     inline static constexpr char cookie_path[] = "/home/aadith/Documents/CPP/MusicServer/cookies_youtube_aadith.txt";
+
     static std::string exec(const std::string &cmd);
+
     static std::string retrieveSongs(
         const std::string &query,
         int limit = 10);
+
     static std::string getAudioStreamUrl(
         const std::string &videoId);
+
     static std::optional<File> downloadAudio(
         const std::string &videoId,
         const std::filesystem::path &musicDirectory,
+        FileService &fileService);
+
+    static std::optional<File> downloadAudio(
+        const std::string &videoId,
+        const std::string &thumbnailUrl,
+        const std::filesystem::path &musicDirectory,
+        const std::filesystem::path &coverDirectory,
         FileService &fileService);
 };

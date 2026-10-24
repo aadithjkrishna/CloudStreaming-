@@ -15,6 +15,8 @@
 #include "router.hpp"
 #include "file_service.hpp"
 #include "yt_dlp_backend.hpp"
+#include "telegram_backend.hpp"
+
 
 class Server
 {

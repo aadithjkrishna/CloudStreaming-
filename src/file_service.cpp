@@ -79,7 +79,6 @@ void updateNextId(int id)
     while (current < id &&
            !File::next_id.compare_exchange_weak(current, id))
     {
-        // compare_exchange_weak updates current after a failed attempt.
     }
 }
 
@@ -100,7 +99,8 @@ json serializeFile(const File& file)
         {"title", file.title},
         {"artist", file.artist},
         {"album", file.album},
-        {"genre", file.genre}
+        {"genre", file.genre},
+        {"source", file.source == SongSource::YouTube ? "youtube" : "local"}
     };
 }
 
@@ -125,6 +125,9 @@ File deserializeFile(const json& value)
     file.artist = value.value("artist", std::string{});
     file.album = value.value("album", std::string{});
     file.genre = value.value("genre", std::string{});
+    file.source = value.value("source", std::string{"local"}) == "youtube"
+                      ? SongSource::YouTube
+                      : SongSource::Local;
 
     updateNextId(file.id);
     return file;
@@ -176,7 +179,7 @@ File extractMetadata(const std::filesystem::path& path)
                 file_name, file_path, cover_image_path, url_path,
                 title, artist, album, genre);
 }
-} // namespace
+}
 
 File::File(std::size_t file_size,
            unsigned int date,
@@ -223,7 +226,6 @@ FileService::FileService(std::filesystem::path music_directory,
 
 FileService::~FileService()
 {
-    // Destructors must not allow persistence exceptions to escape.
     try
     {
         stop();
@@ -331,8 +333,6 @@ void FileService::loadDatabase()
     std::ifstream input(database_path);
     if (!input)
     {
-        // A missing database is normal on first startup. If the path exists
-        // but cannot be opened, report it rather than silently ignoring it.
         std::error_code ec;
         const bool exists = std::filesystem::exists(database_path, ec);
         if (ec)
@@ -358,8 +358,6 @@ void FileService::loadDatabase()
             if (file.id <= 0 || file.file_path.empty())
                 continue;
 
-            // This service manages one directory. Ignore stale entries from
-            // outside it so the periodic scan does not treat them as library files.
             if (!isWithinDirectory(file.file_path, music_directory))
                 continue;
 
@@ -413,7 +411,6 @@ void FileService::saveDatabase() const
             throw std::runtime_error("Failed while writing music database: " + temporary_path.string());
     }
 
-    // On Linux, rename atomically replaces an existing destination on the same filesystem.
     std::error_code ec;
     std::filesystem::rename(temporary_path, database_path, ec);
     if (ec)
@@ -444,7 +441,6 @@ std::optional<File> FileService::indexFile(const std::filesystem::path& path)
         callback = on_new_file;
     }
 
-    // Persist the index before notifying other components.
     saveDatabase();
 
     if (callback)
@@ -467,7 +463,9 @@ std::optional<File> FileService::indexFile(const std::filesystem::path& path)
 }
 
 std::optional<File> FileService::addDownloadedFile(
-    const std::filesystem::path& downloaded_path)
+    const std::filesystem::path& downloaded_path,
+    SongSource source,
+    const std::filesystem::path& cover_path)
 {
     try
     {
@@ -484,7 +482,33 @@ std::optional<File> FileService::addDownloadedFile(
         if (!isAudioFormat(findFormat(downloaded_path.filename().string())))
             return std::nullopt;
 
-        return indexFile(downloaded_path);
+        auto indexed = indexFile(downloaded_path);
+        const std::string key = pathKey(downloaded_path);
+
+        {
+            std::lock_guard lock(files_mutex);
+            for (auto& file : files)
+            {
+                if (file.file_path != key)
+                    continue;
+
+                file.source = source;
+
+                if (!cover_path.empty() &&
+                    std::filesystem::is_regular_file(cover_path))
+                {
+                    file.cover_image_path =
+                        std::filesystem::absolute(cover_path)
+                            .lexically_normal().string();
+                }
+
+                indexed = file;
+                break;
+            }
+        }
+
+        saveDatabase();
+        return indexed;
     }
     catch (const std::exception& error)
     {
@@ -542,10 +566,7 @@ void FileService::scanOnce()
     }
 
     if (ec)
-    {
-        // Do not remove records after an incomplete directory scan.
         throw std::runtime_error("Incomplete music scan: " + ec.message());
-    }
 
     std::vector<File> deleted;
     DeletedFileCallback callback;
